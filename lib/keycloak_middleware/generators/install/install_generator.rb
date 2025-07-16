@@ -1,14 +1,21 @@
-require "rails/generators"
+require 'rails/generators'
 
 module KeycloakMiddleware
   module Generators
     class InstallGenerator < Rails::Generators::Base
-      desc "Creates a KeycloakMiddleware initializer."
+      desc 'Instala o KeycloakMiddleware no seu app Rails'
 
-      source_root File.expand_path("templates", __dir__)
+      def add_middleware
+        application_rb = 'config/application.rb'
+        say_status('info', "Adicionando KeycloakMiddleware ao #{application_rb}", :blue)
 
-      def copy_initializer
-        template "keycloak_middleware.rb", "config/initializers/keycloak_middleware.rb"
+        inject_into_file application_rb, after: "class Application < Rails::Application\n" do
+          <<-RUBY
+
+    # Adiciona KeycloakMiddleware para autenticação
+    config.middleware.use KeycloakMiddleware::Middleware
+          RUBY
+        end
       end
     end
   end
