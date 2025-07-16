@@ -5,17 +5,17 @@ module KeycloakMiddleware
     class InstallGenerator < Rails::Generators::Base
       desc 'Instala o KeycloakMiddleware no seu app Rails'
 
-      def add_middleware
-        application_rb = 'config/application.rb'
-        say_status('info', "Adicionando KeycloakMiddleware ao #{application_rb}", :blue)
+      def create_initializer
+        initializer_path = 'config/initializers/keycloak_middleware.rb'
+        say_status('info', "Criando #{initializer_path}", :blue)
 
-        inject_into_file application_rb, after: "class Application < Rails::Application\n" do
-          <<-RUBY
-
-    # Adiciona KeycloakMiddleware para autenticação
-    config.middleware.use KeycloakMiddleware::Middleware
-          RUBY
-        end
+        create_file initializer_path, <<~RUBY
+          Rails.application.config.middleware.use KeycloakMiddleware::Middleware do |config|
+            # Configure os caminhos protegidos e os papéis exigidos
+            config.protect "/secured", role: "user"
+            config.protect "/admin", role: "admin"
+          end
+        RUBY
       end
     end
   end

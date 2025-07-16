@@ -8,6 +8,12 @@ module KeycloakMiddleware
   class Middleware
     def initialize(app)
       @app = app
+      @config = Configuration.new
+
+      # Support yielding config when middleware is configured in Rails
+      if block_given?
+        yield @config
+      end
     end
 
     def call(env)
