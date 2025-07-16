@@ -11,7 +11,7 @@ We welcome all kinds of contributions: bug reports, feature requests, code impro
 ### 1️⃣ Fork & Clone
 
 ```bash
-git clone https://github.com/giljr/rails/gems/keycloak_middleware.git
+git clone https://github.com/giljr/rails_gems_keycloak_middleware
 cd keycloak_middleware
 bundle install
 ```
