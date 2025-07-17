@@ -11,9 +11,9 @@ module KeycloakMiddleware
       @config = Configuration.new
 
       # Support yielding config when middleware is configured in Rails
-      if block_given?
-        yield @config
-      end
+      return unless block_given?
+
+      yield @config
     end
 
     def call(env)
@@ -100,12 +100,9 @@ module KeycloakMiddleware
         payload = decode_token(token_response['access_token'])
         roles = payload.dig('realm_access', 'roles') || []
 
-        # Decide redirection path based on role
         redirect_path =
-          if roles.include?('admin')
-            '/admin'
-          elsif roles.include?('user')
-            '/secured'
+          if @config.on_login_success
+            @config.on_login_success.call(roles)
           else
             '/'
           end
