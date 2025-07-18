@@ -10,16 +10,13 @@ module KeycloakMiddleware
       @app = app
       @config = Configuration.new
 
-      # Support yielding config when middleware is configured in Rails
-      return unless block_given?
-
-      yield @config
+      yield @config if block_given?
     end
 
     def call(env)
-      # Aqui entra sua lógica de autenticação com Keycloak
-      puts '[KeycloakMiddleware] processing request…'
+      puts '[KeycloakMiddleware] processing request…' if @config.debug
       load_config
+
       request = Rack::Request.new(env)
       session = request.session
       path = request.path_info
@@ -30,6 +27,8 @@ module KeycloakMiddleware
         return redirect_to_keycloak_login
       when '/auth/callback'
         return handle_callback(request)
+      when '/logout'
+        return handle_logout(request)
       end
 
       required_role = @config.protected_paths[path]
@@ -37,7 +36,7 @@ module KeycloakMiddleware
 
       token = extract_token(request)
 
-      unless token
+      unless token || session[:roles].present?
         session[:return_to] = request.fullpath
         return [302, { 'Location' => '/login' }, []]
       end
@@ -57,10 +56,10 @@ module KeycloakMiddleware
     def load_config
       @realm ||= ENV.fetch('KEYCLOAK_REALM')
       @auth_server_url ||= ENV.fetch('KEYCLOAK_SITE')
-      @client_id ||= ENV.fetch('KEYCLOAK_CLIENT_ID')
-      @client_secret ||= ENV.fetch('KEYCLOAK_CLIENT_SECRET')
-      @redirect_uri ||= ENV.fetch('KEYCLOAK_REDIRECT_URI')
-      @jwks ||= fetch_jwks
+      @client_id      ||= ENV.fetch('KEYCLOAK_CLIENT_ID')
+      @client_secret  ||= ENV.fetch('KEYCLOAK_CLIENT_SECRET')
+      @redirect_uri   ||= ENV.fetch('KEYCLOAK_REDIRECT_URI')
+      @jwks           ||= fetch_jwks
     end
 
     def extract_token(request)
@@ -84,33 +83,57 @@ module KeycloakMiddleware
 
     def handle_callback(request)
       code = request.params['code']
-      puts '----------------------------------------------' if code
-      puts "Received authorization code: #{code}" if code
       session = request.session
+
+      debug_puts '----------------------------------------------' if code
+      debug_puts "Received authorization code: #{code}" if code
+
       return unauthorized('Missing authorization code') unless code
 
       token_response = exchange_code_for_token(code)
-      puts '----------------------------------------------' if code
-      puts "Token response: #{token_response.inspect}" if token_response
-      puts '----------------------------------------------' if code
 
-      if token_response && token_response['access_token']
-        session[:access_token] = token_response['access_token']
+      debug_puts '----------------------------------------------' if code
+      debug_puts "Token response: #{token_response.inspect}" if token_response
+      debug_puts '----------------------------------------------' if code
 
-        payload = decode_token(token_response['access_token'])
-        roles = payload.dig('realm_access', 'roles') || []
-
-        redirect_path =
-          if @config.on_login_success
-            @config.on_login_success.call(roles)
-          else
-            '/'
-          end
-
-        [302, { 'Location' => redirect_path }, []]
-      else
-        unauthorized('Token exchange failed')
+      unless token_response && token_response['access_token'] && token_response['id_token']
+        return unauthorized('Token exchange failed')
       end
+
+      # Decode id_token and access_token
+      decode_token(token_response['id_token'])
+      decode_token(token_response['access_token'])
+
+      # Save minimal session data
+      decoded_payload = decode_token(token_response['access_token'])
+      session[:user_id] = decoded_payload['sub']
+      session[:roles]   = decoded_payload.dig('realm_access', 'roles') || []
+      session[:access_token] = token_response['access_token']
+
+      redirect_path =
+        if @config.on_login_success
+          @config.on_login_success.call(session[:roles])
+        else
+          '/'
+        end
+
+      [302, { 'Location' => redirect_path }, []]
+    end
+
+    def handle_logout(request)
+      session = request.session
+      id_token = session[:id_token]
+
+      # clear the session
+      session.clear
+
+      logout_uri = URI("#{@auth_server_url}/realms/#{@realm}/protocol/openid-connect/logout")
+      logout_uri.query = URI.encode_www_form(
+        id_token_hint: id_token,
+        post_logout_redirect_uri: @redirect_uri
+      )
+
+      [302, { 'Location' => logout_uri.to_s }, []]
     end
 
     def exchange_code_for_token(code)
@@ -153,6 +176,10 @@ module KeycloakMiddleware
 
     def forbidden(message)
       [403, { 'Content-Type' => 'application/json' }, [{ error: message }.to_json]]
+    end
+
+    def debug_puts(message)
+      puts(message) if @config.debug
     end
   end
 end
